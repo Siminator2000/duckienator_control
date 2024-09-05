@@ -1,0 +1,12 @@
+<launch>
+    
+
+    
+    <node name="my_image_process_node" pkg="my_package" type="my_image_process_node.py" output="screen"/>
+
+
+    <node name="car_position_node" pkg="my_package" type="car_position_node.py" output="screen"/>
+
+    
+ 
+</launch>

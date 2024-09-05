@@ -1,0 +1,11 @@
+<launch>
+
+
+    
+    <node name="sys_cal_node" pkg="my_package" type="sys_cal_node.py" output="screen"/>
+
+
+
+    <node name="my_low_level_v_pid_controller_node" pkg="my_package" type="my_low_level_v_pid_controller_node.py" output="screen"/>
+
+</launch>

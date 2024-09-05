@@ -5,7 +5,7 @@
     <node name="my_image_process_node" pkg="my_package" type="my_image_process_node.py" output="screen"/>
 
     
-    <node name="my_lane_following_node" pkg="my_package" type="my_lane_following_node.py" output="screen"/>
+    <node name="my_lane_following_second_node" pkg="my_package" type="my_lane_following_second_node.py" output="screen"/>
     
 
     <node name="my_intersection_controll_node" pkg="my_package" type="my_intersection_controll_node.py" output="screen"/>

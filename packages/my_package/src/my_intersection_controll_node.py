@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 
 import os
-import rospy
+import rospy #type: ignore
 import numpy as np
-from duckietown.dtros import DTROS, NodeType
-from duckietown_msgs.msg import WheelsCmdStamped
-from duckietown_msgs.msg import Twist2DStamped
+from duckietown.dtros import DTROS, NodeType #type: ignore
+from duckietown_msgs.msg import WheelsCmdStamped #type: ignore
+from duckietown_msgs.msg import Twist2DStamped #type: ignore
 
-from duckietown_msgs.msg import WheelEncoderStamped
+from duckietown_msgs.msg import WheelEncoderStamped #type: ignore
 
-from std_msgs.msg import String
+from std_msgs.msg import String #type: ignore
 
 import cv2
-from cv_bridge import CvBridge
-from sensor_msgs.msg import CompressedImage
-from std_msgs.msg import Bool
+from cv_bridge import CvBridge #type: ignore
+from sensor_msgs.msg import CompressedImage #type: ignore
+from std_msgs.msg import Bool #type: ignore
 
 
 
@@ -69,12 +69,11 @@ class IntersectionControllNode(DTROS):
         #Konstanten für Intersection
         self.pre_intersection_ready=False
 
-        self.kp=0.1
-        self.ki=0.1
-        self.kd=0.01
+        #Werte zum publishen mit 10Hz zwischenspeichern
+        self.new_pub=False
+        self.v_stell_links=0.0
+        self.v_stell_rechts=0.0
 
-        self.omega_i_err=0
-        self.omega_err_last=0
 
 
         #Die Konstanten sollten stimmen
@@ -88,9 +87,9 @@ class IntersectionControllNode(DTROS):
 
         #TODO Werte herausfinden
 
-        self.v_gerade=0.7
-        self.v_rechts=0.5       
-        self.v_links=0.5
+        self.v_gerade=0.5
+        self.v_rechts=0.4
+        self.v_links=0.7
 
 
         #Werte überprüft
@@ -101,7 +100,7 @@ class IntersectionControllNode(DTROS):
         self.strecke_soll_zurueckgelegt_kurve_links_aussen=0.61261
         self.strecke_soll_zurueckgelegt_kurve_links_innen=0.45553
         self.strecke_soll_zurueckgelegt_kurve_rechts_aussen=0.24347
-        self.strecke_soll_zurueckgelegt_kurve_rechts_innen=0.8639
+        self.strecke_soll_zurueckgelegt_kurve_rechts_innen=0.08639
         self.strecke_soll_zurueckgelegt_gerade=0.445
 
 
@@ -113,17 +112,18 @@ class IntersectionControllNode(DTROS):
         self._bridge = CvBridge()
         self.y_start_last = None
 
-        self.b_soll=50 #Abstand in Pixeln von Auto zur roten Linie
+        self.b_soll=430 #Abstand in Pixeln von Auto zur roten Linie
         self.phi_soll=0 #Winkel zur roten Linie, also eigenlich 0
 
             #Noch justierbar
-        self.init_red_pixel_threshold = 50
-        self.weight_threshhold= 20
+        #TODO
+        self.init_red_pixel_threshold = 1
+        self.weight_threshhold= 1
 
         #für beide pre intersection pid regler
-        self.v_kp=5
-        self.v_ki=2
-        self.v_kd=0.5
+        self.v_kp=0.002
+        self.v_ki=0.001
+        self.v_kd=0.00005
 
         self.omega_kp=5
         self.omega_ki=2
@@ -136,6 +136,13 @@ class IntersectionControllNode(DTROS):
 
         self.phi_i_err=0
         self.phi_err_last=0
+
+        self.v_max_pre=1
+        self.v_min_pre=-0.2
+
+
+        self.phi_tol=0.01
+        self.b_tol=10
 
         print("INIT: my_intersection_control_node!")
 
@@ -156,6 +163,8 @@ class IntersectionControllNode(DTROS):
         self.image_msg = msg
 
     def pre_intersection(self):
+
+        self.new_pub=True
 
         while True:
 
@@ -183,37 +192,169 @@ class IntersectionControllNode(DTROS):
             
             matrix_trans = cv2.getPerspectiveTransform(pts1, pts2)
             img_trans = cv2.warpPerspective(image, matrix_trans, (breite,höhe))
+            """
+            #Kontrast erhöhen
+            r_image, g_image, b_image = cv2.split(img_trans)
+
+            r_image_eq = cv2.equalizeHist(r_image)
+            g_image_eq = cv2.equalizeHist(g_image)
+            b_image_eq = cv2.equalizeHist(b_image)
+
+            img_trans = cv2.merge((r_image_eq, g_image_eq, b_image_eq))
+            """
 
             #Auflösung niedriger machen oder Blur
-            sigma = 6 
-            img_trans_blur = cv2.GaussianBlur(img_trans,(0,0), sigma)
 
+            
             #Gradienten/Kantenerkennung
-            imggray = cv2.cvtColor(img_trans_blur, cv2.COLOR_BGR2GRAY)
 
-            sobelx = cv2.Sobel(imggray,cv2.CV_64F,1,0)
-            sobely = cv2.Sobel(imggray,cv2.CV_64F,0,1)
+            imggray = cv2.cvtColor(img_trans, cv2.COLOR_BGR2GRAY)
+            sigma = 3 
+            img_gray_blur = cv2.GaussianBlur(imggray,(0,0), sigma)
+            img_blur = cv2.GaussianBlur(img_trans,(0,0), sigma)
+            cv2.imshow("gray", img_gray_blur)
 
-            Gmag = np.sqrt(sobelx*sobelx + sobely*sobely)
+            """
+            #Kontrast des grauen bildes erhöhen
+            imggray_kon = cv2.equalizeHist(imggray)
+            img_gray_blur_kon = cv2.GaussianBlur(imggray_kon,(0,0), sigma)
+            cv2.imshow("gray kon", img_gray_blur_kon)
+            """
+            sobelx = cv2.Sobel(img_gray_blur,cv2.CV_64F,1,0)
+            sobely = cv2.Sobel(img_gray_blur,cv2.CV_64F,0,1)
+
+            
             Gdir = cv2.phase(np.array(sobelx, np.float32), np.array(sobely, dtype=np.float32), angleInDegrees=True)
 
-            threshold = 10
+            Gmag = np.sqrt(sobelx*sobelx + sobely*sobely)
+            tolerance_angle = 45
+            mask_phase = np.where(
+                (sobely > 0) & # positive Richtung (dunkel -> hell)
+                ((Gdir >= 90 - tolerance_angle) & (Gdir <= 90 + tolerance_angle)), 
+                1, 0).astype(np.uint8)
+            
+            #erkannte kanten verstärken
+            kernel = np.ones((3,3),np.uint8)
+            mask_phase = cv2.dilate(mask_phase, kernel, iterations = 1)
+
+            threshold = 1
             mask_mag = (Gmag > threshold)
             #cv2.imshow("mag",Gmag*mask_mag)
+
+
+
+            """
+            #Neue kantenerkennung
+            r_channel, g_channel, b_channel = cv2.split(img_trans)
+
+            # Kantenerkennung auf dem Rot-Kanal
+            edges_r = cv2.Canny(r_channel, 50, 150)
+
+            cv2.imshow('Kanten', edges_r)
+            """
+
+
+
+
+
+
+
+
+
 
             #Umwanden in HSV für Farbfiler
             image_hsv = cv2.cvtColor(img_trans, cv2.COLOR_BGR2HSV)
 
             #Farbfilterung
 
-
+            
             #TODO Werte wählen
-            red_lower_hsv = np.array([0, 0, 0])
-            red_upper_hsv = np.array([179, 255, 255])
+            #Schwarz wird rausgefiltert. Nur rot ist schlecht erkennbar
+            red_lower_hsv = np.array([0, 0, 188])
+            red_upper_hsv = np.array([179, 172, 255])
 
 
             mask_red = cv2.inRange(image_hsv, red_lower_hsv, red_upper_hsv)
+            
 
+            # Extrahiere die Rot-, Grün- und Blaukanäle
+            B, G, R = cv2.split(img_trans)
+
+            # Erstelle eine leere Maske für rote Bereiche
+            red_mask_rgb = np.zeros_like(R)
+
+            # Definiere Schwellenwerte für Rot. Beispiel: Rot muss größer als 150 sein und Grün/Blau müssen kleiner sein
+            red_threshold = 140
+            non_red_threshold = 120
+
+            # Erstelle die Maske, die anzeigt, wo das Bild rot ist
+            red_mask_rgb[(R > red_threshold) & (G < non_red_threshold) & (B < non_red_threshold)] = 255
+
+
+            # Definiere die Anzahl der oberen Pixel, die du behalten möchtest
+            n_top_pixels = 20
+
+            # Erstelle einen Kernel für die morphologische Operation
+            kernel = np.ones((n_top_pixels, red_mask_rgb.shape[1]), dtype=np.uint8)
+
+            # Wende die morphologische Operation an, um nur die oberen Teile der Maske zu behalten
+            red_mask_rgb = cv2.morphologyEx(red_mask_rgb, cv2.MORPH_ERODE, kernel)
+
+
+            cv2.imshow("red rgb", red_mask_rgb)
+
+
+
+
+
+
+
+
+
+
+
+
+            #probieren andere kantenerkennung
+            trysobelx = cv2.Sobel(red_mask_rgb,cv2.CV_64F,1,0)
+            trysobely = cv2.Sobel(red_mask_rgb,cv2.CV_64F,0,1)
+            tryGdir = cv2.phase(np.array(trysobelx, np.float32), np.array(trysobely, dtype=np.float32), angleInDegrees=True)
+            tryGmag = np.sqrt(trysobelx*trysobelx + trysobely*trysobely)
+            tolerance_angle = 45
+            trymask_phase = np.where(
+                (trysobely > 0) & # positive Richtung (dunkel -> hell)
+                ((tryGdir >= 90 - tolerance_angle) & (tryGdir <= 90 + tolerance_angle)), 
+                1, 0).astype(np.uint8)
+            threshold = 10
+            trymask_mag = (tryGmag > threshold)
+            #cv2.imshow("mag",Gmag*mask_mag)
+
+
+            tryred_lines = trymask_phase*red_mask_rgb
+
+
+            # Definiere einen vertikalen Kernel
+            kernel = np.ones((20, 1), np.uint8)  # 20x1 Kernel (20 Pixel in y-Richtung und 1 Pixel in x-Richtung)
+
+            # Wende Dilation mit dem definierten Kernel an
+            tryred_lines = cv2.dilate(tryred_lines, kernel, iterations=1)
+
+    
+            cv2.imshow("tryLines", tryred_lines)
+            
+            
+
+
+            """
+            #Rotes bild
+            red = image_hsv.copy()
+            
+            red[:, :, 0] = 0
+            red[:, :, 1] = 0
+
+            
+
+            cv2.imshow("red",red)
+            """
 
             mask_sobelx_pos = (sobelx > 0)
             mask_sobelx_neg = (sobelx < 0)
@@ -223,24 +364,34 @@ class IntersectionControllNode(DTROS):
 
 
             #TODO Hier noch schauen, welche sobel masks korrekt sind
-            mask_edge = mask_mag  * mask_sobelx_neg #* mask_sobely_pos
+            #mask_edge = mask_mag *mask_phase
+
+          
+
+            cv2.waitKey(1)
+
             
 
             #cv2.imshow("mask_edge", mask_edge)
 
             
-            red_line = mask_red * mask_edge
+            #red_line = mask_edge * mask_red
     
             #cv2.imshow("red_line", red_line)
             #cv2.waitKey(1)
-
+            #cv2.imshow("Lines", mask_edge)
             cv2.imshow("Transformed Image", img_trans)
+
+
+            red_line=red_mask_rgb
+
 
 
 
             #Hier kommt dann das Sliding Window für die rote Linie
 
             #Erst einmal Startpunkt auswählen
+
 
             red_his = np.sum(red_line[:,:],axis=1)
             
@@ -255,18 +406,22 @@ class IntersectionControllNode(DTROS):
                 
             except:
                 y_start=None
+                print("Except y_start!")
 
+            
             #Schauen ob neuer Y-Startpunkt weiter am auto liegt, als der letze und genug rote pixel erkannt wurden, sonst alten y wert nehmen 
-            if (self.y_start_last != None)&(y_start>self.y_start_last)&(pixel_count>self.init_red_pixel_threshold):
-                self.y_start_last=y_start
 
-            else:
-                y_start=self.y_start_last
-
+            if (y_start is None) or ((self.y_start_last is not None) and (y_start < self.y_start_last) and (pixel_count < self.init_red_pixel_threshold)):
+                y_start = self.y_start_last
+            
 
 
-            höhe_slw=60
-            höhe_slw_init=100
+            #print("Startpunkt: ", y_start)
+
+            
+
+            höhe_slw=80
+            höhe_slw_init=80
             breite_slw=40 #-->16 SLW auf 640 breite gesamt
 
             red_line_slw=np.copy(red_line)
@@ -294,13 +449,13 @@ class IntersectionControllNode(DTROS):
             
             else:
                 red_y.append(y_start)
-                red_y_weight(0.0)
+                red_y_weight.append(0.0)
 
             
             cv2.rectangle(red_line_slw,(x,y_start-höhe_slw_init),(x+breite_slw,y_start+höhe_slw_init),(255,255,0),2)
 
             #cv2.imshow("red + init Window", red_line_slw)
-
+            
             #Hier jetzt alle anderen SLW platzieren
 
             i=0
@@ -309,7 +464,7 @@ class IntersectionControllNode(DTROS):
 
                 x= x - breite_slw
 
-                slw_red=red_line[red_y[i]-höhe_slw:red_y[i]+höhe_slw, x:x+breite_slw]
+                slw_red=red_line[red_y[i]-höhe_slw//2:red_y[i]+höhe_slw//2, x:x+breite_slw]
 
                 slw_red_his = np.sum(slw_red,axis=1)
 
@@ -320,28 +475,37 @@ class IntersectionControllNode(DTROS):
 
 
                 if red_slw_pixel_count>self.weight_threshhold: #DONE, aber Konstante kann auch verschieden sein, zu self.weight_threshold (Hier noch threshold einfügen maybe self.weight_threshold)
-                
+                    #print("neuen y wert")
                     slw_red_y = np.argmax(slw_red_his)
                     red_y.append((slw_red_y+red_y[i]-höhe_slw//2))
                     red_y_weight.append(red_slw_pixel_count)
             
                 else:
+                    #print("alten y-wert")
                     red_y.append(red_y[i])
                     red_y_weight.append(0.0)
+                #print(red_y[i])
+                i=i+1 
+                cv2.rectangle(red_line_slw, (x, red_y[i] - höhe_slw//2), (x + breite_slw, red_y[i] + höhe_slw//2), (255, 255, 0), 2)
+
+                
                     
-                cv2.rectangle(red_line_slw,(x,y_start-höhe_slw),(x+breite_slw,y_start+höhe_slw),(255,255,0),2)
-                    
 
-
-
+            cv2.imshow("red + slws", red_line_slw)
+            
             #Dann eine Gerade durchlegen mit punkten bei denen weight > threshhold ist
 
-            x_array = np.linspace(breite-breite_slw//2, breite_slw, num=breite//breite_slw, endpoint=True, retstep=False, dtype=None, axis=0)
+            x_array = np.arange(0, breite, breite_slw)
+
+            x_array = x_array+breite_slw//2
 
             #Das ganze Koordinatensystem um 640/2 nach links verschieben, damit der Mittelpunkt der Gerade in der Mitte des Bilds ist.
             #Somit beeinflusst omega nicht b, sondern nur a und es kann v und omega seperat geregelt werden
 
             x_array = x_array - breite//2
+            #print(x_array)
+            red_y_weight = np.array(red_y_weight)
+            red_y = np.array(red_y)
 
             indices_to_remove = np.where(red_y_weight == 0.0)[0]
 
@@ -349,7 +513,25 @@ class IntersectionControllNode(DTROS):
             red_y = np.delete(red_y, indices_to_remove)
             x_array = np.delete(x_array, indices_to_remove)
 
-            a_ist, b_ist = np.polyfit(x_array, red_y, 1) #Polynom 1. Grades wird duch die Punkte gelegt --> y=ax+b
+
+            #print("Länge: ", len(red_y))
+            
+            if len(red_y)>=2:
+                a_ist, b_ist = np.polyfit(x_array, red_y, 1) #Polynom 1. Grades wird duch die Punkte gelegt --> y=ax+b
+            else:
+                a_ist = 0.0
+                b_ist = 0.0
+            print("koeff: ", a_ist, b_ist)
+
+
+            #Linie plotten
+            left_point = breite_slw//2, a_ist*-300+b_ist
+            right_point = breite- breite_slw//2, a_ist*300+b_ist
+
+            cv2.line(red_line_slw, left_point, right_point, (0, 0, 255), 3)
+            cv2.line(red_line_slw, (breite_slw//2, self.b_soll), (breite-breite_slw//2, self.b_soll), (255, 0, 0), 2)
+            
+            cv2.imshow("Stop Line", red_line_slw)
 
             phi_ist = np.arctan(a_ist)
 
@@ -358,12 +540,16 @@ class IntersectionControllNode(DTROS):
             #Hier wird überprüft, ob Positionierung passt. Wenn ja, dann fertig und aus der while schleife raus 
             # --> pre_intersection methode wird beendet
 
-            if(phi_ist == self.phi_soll)&(b_ist==self.b_soll):
-                message = Twist2DStamped(v=0, omega=0)
-                self.pub.publish(message)
-                self.pre_intersection_ready=True
-                break
+            if (abs(phi_ist - self.phi_soll) <= self.phi_tol) and (abs(b_ist - self.b_soll) <= self.b_tol):
 
+                message = WheelsCmdStamped(vel_left=0.0, vel_right=0.0)
+                self.pub.publish(message)
+
+                self.pre_intersection_ready=True
+                self.new_pub=False
+                print("Pre-Intersection Ready!!!")
+                break
+            
             #Dann was überlegen, dass ich parallel zur Roten Linie mit einem bestimmten Abstand stehe
 
             #a muss gegen Null gehen und b auf einen bestimmten bestimmten Wert, da es der Abstand von Auto zur roten Linie ist.
@@ -381,25 +567,49 @@ class IntersectionControllNode(DTROS):
             self.b_i_err = self.b_i_err + dt*b_err
             b_d_err = (b_err - self.b_err_last)/dt
 
-            v_stell = b_err * self.v_kp + self.b_i_err * self.v_ki + b_d_err * self.v_kd
+            v_stell = b_err * self.v_kp #+ self.b_i_err * self.v_ki + b_d_err * self.v_kd
+
+            #Werte begrenzen
+            if v_stell < self.v_min_pre:
+                v_stell = self.v_min_pre
+            elif v_stell > self.v_max_pre:
+                v_stell = self.v_max_pre
+            
 
             self.b_err_last = b_err
 
             #omega(a) regeln (Ob a oder phi benutzen noch schauen, aber da linearer Zusammenhang wahrsacheinlich egal)
 
-            phi_err = self.phi_soll - phi_ist
+            phi_err = phi_ist - self.phi_soll
             self.phi_i_err = self.phi_i_err + dt*phi_err
-            phi_d_err = (phi_err - self.phi_err_last)
+            phi_d_err = (phi_err - self.phi_err_last)/dt
 
-            omega_stell = phi_err * self.omega_kp + self.phi_i_err * self.omega_ki + phi_d_err * self.omega_kd
+            omega_stell = phi_err * self.omega_kp #+ self.phi_i_err * self.omega_ki + phi_d_err * self.omega_kd
 
             self.phi_err_last = phi_err
 
             #Message publishen
-            message = Twist2DStamped(v=v_stell, omega=omega_stell)
-        
-            self.pub.publish(message)
+            
+            v_left = v_stell - (omega_stell * self.abstand_raeder) / 2
+            v_right = v_stell + (omega_stell * self.abstand_raeder) / 2
 
+            print("v_left", v_left)
+            print("v_right", v_right)
+
+            self.v_stell_links=v_left
+            self.v_stell_rechts=v_right
+
+            """
+            #Das opublishen wird in einem seperaten teil gemacht, damit die bilderkennung mit höherer frequenz laufen kann 
+            # und trotzdem nur mit 10 hz die geschwindligkeit gepublished wird
+            message = WheelsCmdStamped(vel_left=v_left, vel_right=v_right)
+            self.pub.publish(message)
+            rate = rospy.Rate(10)
+            rate.sleep()
+            """
+
+
+            
 
 
 
@@ -414,13 +624,13 @@ class IntersectionControllNode(DTROS):
         """
 
         #Hier in dieser methode wird alles für die Positionerung gemacht
-        #self.pre_intersection()
+        self.pre_intersection()
 
-
+        #self.new_pub = True
         if msg.data == "g":
 
-            v_l=self.v_gerade
-            v_r=self.v_gerade
+            v_l_soll=self.v_gerade
+            v_r_soll=self.v_gerade
 
             strecke_soll_zurueckgelegt_links = self.strecke_soll_zurueckgelegt_gerade
             strecke_soll_zurueckgelegt_rechts = self.strecke_soll_zurueckgelegt_gerade
@@ -428,16 +638,16 @@ class IntersectionControllNode(DTROS):
 
         elif msg.data == "r":
 
-            v_l = self.v_rechts * (self.radius_kurve_rechts - self.abstand_raeder / 2) / self.radius_kurve_rechts #0.26190m/s
-            v_r = self.v_rechts * (self.radius_kurve_rechts + self.abstand_raeder / 2) / self.radius_kurve_rechts #0.73810m/s
+            v_l_soll = self.v_rechts * (self.radius_kurve_rechts + self.abstand_raeder / 2) / self.radius_kurve_rechts #0.73810m/s
+            v_r_soll = self.v_rechts * (self.radius_kurve_rechts - self.abstand_raeder / 2) / self.radius_kurve_rechts #0.26190m/s
 
             strecke_soll_zurueckgelegt_links = self.strecke_soll_zurueckgelegt_kurve_rechts_aussen
             strecke_soll_zurueckgelegt_rechts = self.strecke_soll_zurueckgelegt_kurve_rechts_innen
 
         elif msg.data == "l":
 
-            v_l = self.v_links * (self.radius_kurve_links - self.abstand_raeder / 2) / self.radius_kurve_links  #0.42647m/s
-            v_r = self.v_links * (self.radius_kurve_links + self.abstand_raeder / 2) / self.radius_kurve_links  #0.57353m/s
+            v_l_soll = self.v_links * (self.radius_kurve_links - self.abstand_raeder / 2) / self.radius_kurve_links  #0.42647m/s
+            v_r_soll = self.v_links * (self.radius_kurve_links + self.abstand_raeder / 2) / self.radius_kurve_links  #0.57353m/s
 
             strecke_soll_zurueckgelegt_links = self.strecke_soll_zurueckgelegt_kurve_links_innen
             strecke_soll_zurueckgelegt_rechts = self.strecke_soll_zurueckgelegt_kurve_links_aussen
@@ -446,14 +656,13 @@ class IntersectionControllNode(DTROS):
         else:
             print("Error --> Keine Richtung angegeben")
 
+        
+        
+
         start_links = self._ticks_left/self.aufloesung*self.umfang_links
         start_rechts = self._ticks_right/self.aufloesung*self.umfang_rechts
 
 
-        #Werte zurücksetzen
-        self.phi_last=0
-        self.omega_i_err=0
-        self.omega_err_last=0
 
         #print("Start links, Start_rechts: ", start_links, start_rechts)
         #passt
@@ -461,83 +670,42 @@ class IntersectionControllNode(DTROS):
 
         #print("Vor While in pid_intersection_controll_node")
 
-        while True: #self.pre_intersection_ready:
 
 
-            
+        rate = rospy.Rate(10)
+
+        while self.pre_intersection_ready:
+
+
+
             strecke_links=((self._ticks_left/self.aufloesung)*self.umfang_links)-start_links
             strecke_rechts=((self._ticks_right/self.aufloesung)*self.umfang_rechts)-start_rechts
 
-            #print("Strecke rechts: ", strecke_rechts, strecke_soll_zurueckgelegt_rechts)
-            #print("Strecke links:  ", strecke_links, strecke_soll_zurueckgelegt_links)
-            """
-            delta_strecke=strecke_rechts-strecke_links
+            print("Strecke rechts: ", strecke_rechts, strecke_soll_zurueckgelegt_rechts)
+            print("Strecke links:  ", strecke_links, strecke_soll_zurueckgelegt_links)
 
-            print("Strecke delta:  ", delta_strecke)
+     
+            if (strecke_links < strecke_soll_zurueckgelegt_links) and (strecke_rechts < strecke_soll_zurueckgelegt_rechts):
+                
+                message = WheelsCmdStamped(vel_left=v_l_soll, vel_right=v_r_soll)
+                
+                self.pub.publish(message)
 
-            time=rospy.get_time()
-
-            dt=time-self.last_time
-
-            print("dt: ", dt)
-            self.last_time=time
-
-            phi=delta_strecke/(self.abstand_raeder/2) #winkel des autos in rad
-
-            phi_grad = np.rad2deg(phi)
-            print("phi_grad des autos", phi_grad)
-
-            omega_ist = (phi-self.phi_last)/dt
-            
-            self.phi_last=phi
-
-            omega_err=omega_soll-omega_ist
-
-            #I-Anteil
-            self.omega_i_err=self.omega_i_err+omega_err*dt
-
-            #D-Anteil
-            omega_d_err=(omega_err-self.omega_err_last)/dt
-
-            self.omega_err_last=omega_err
-
-            omega_stell = omega_soll + omega_err*self.kp #+ self.omega_i_err*self.ki + omega_d_err*self.kd
-            print(" ")
-            print("omega_ist:   ", omega_ist)
-            print(" ")
-            print("omega_soll:  ", omega_soll)
-            print(" ")
-            print("omega_p:     ", omega_err*self.kp)
-            print(" ")
-            print("omega_i:     ", self.omega_i_err*self.ki)
-            print(" ")
-            print("omega_d:     ", omega_d_err*self.kd)
-            print(" ")
-            print("omega_stell: ", omega_stell)
-            print(" ")
-            """
-            #Publishen
-            rate = rospy.Rate(10)
-            message = WheelsCmdStamped(vel_left=v_l, vel_right=v_r)
-            
-            self.pub.publish(message)
-
-            rate.sleep()
-
+                
 
             #Hier kann auch 'oder' hin, muss noch getestet werden, was sinnvoller ist
             #Außerdem kann hier auch noch statt >= ein gewisser bereich angegeben werden, sodass, wenn es überschwingt, wieder zurück geregelt wird
-            if (strecke_links >= strecke_soll_zurueckgelegt_links)|(strecke_rechts >= strecke_soll_zurueckgelegt_rechts):
+            else:
                 print("Intersection erfolgreich überwunden!!")
-                message = WheelsCmdStamped(vel_left=0.0, vel_right=0.0)
-                self.pub.publish(message)
-
-                #message_stop = WheelsCmdStamped(vel_left=0.0, vel_right=0.0)
-                #self.pub_stop.publish(message_stop)
-                #self.pre_intersection_ready=False
+                message1 = WheelsCmdStamped(vel_left=0.0, vel_right=0.0)
+                self.pub.publish(message1)
+                #self.new_pub = False
                 break
+            
+            rate.sleep()
 
         #Hier ausserhalb der while schleife kann nach dem erfolgreichen intersection controll eine msg gepublished werden, damit wieder line following erfolgen kann
+   
 
         #msg_lf1 = Bool()
         #msg_lf1.data = False
@@ -545,9 +713,36 @@ class IntersectionControllNode(DTROS):
         #print("Nach While in pid_intersection_controll_node")
 
 
+    
+    def run(self):
+        rate = rospy.Rate(10)  # Setzt die Rate auf 10 Hz
+        stop_published = False  # Variable, um zu verfolgen, ob 0-Geschwindigkeiten bereits veröffentlicht wurden
+        
+        while True:
+            while self.new_pub:
+                # Publiziert die aktuellen Geschwindigkeiten
+                message = WheelsCmdStamped(vel_left=self.v_stell_links, vel_right=self.v_stell_rechts)
+                self.pub.publish(message)
+                stop_published = False  # Setzt zurück, da wir in der Schleife aktiv publizieren
+                
+                # Hält die Rate der inneren Schleife bei 10 Hz
+                rate.sleep()
+            
+            # Nur einmal veröffentlichen, wenn die innere Schleife verlassen wird
+            if not stop_published:
+                stop_message = WheelsCmdStamped(vel_left=0, vel_right=0)
+                self.pub.publish(stop_message)
+                stop_published = True  # Setzt die Variable, um erneutes Publizieren zu verhindern
+            
+            # Hält die Rate auch im äußeren Loop bei 10 Hz
+            rate.sleep()
+            
+
+
 if __name__ == '__main__':
     # create the node
     node = IntersectionControllNode(node_name='intersection_controll_node')
+    node.run()
     # keep spinning
     rospy.spin()
        

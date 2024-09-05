@@ -5,15 +5,12 @@
     <node name="my_image_process_node" pkg="my_package" type="my_image_process_node.py" output="screen"/>
 
     
-    <node name="my_lane_following_node" pkg="my_package" type="my_lane_following_node.py" output="screen"/>
+    <node name="my_lane_following_node_first" pkg="my_package" type="my_lane_following_first_node.py" output="screen"/>
     
 
     <node name="my_intersection_controll_node" pkg="my_package" type="my_intersection_controll_node.py" output="screen"/>
 
     <node name="msg_node" pkg="my_package" type="msg_node.py" output="screen"/>
 
-
-
-    <node name="my_low_level_v_pid_controller_node" pkg="my_package" type="my_low_level_v_pid_controller_node.py" output="screen"/>
 
 </launch>

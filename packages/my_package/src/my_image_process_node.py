@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 
 import os
-import rospy
+import rospy #type: ignore
 import numpy as np
-from duckietown.dtros import DTROS, NodeType
-from sensor_msgs.msg import CompressedImage
-from std_msgs.msg import Float32MultiArray
-from std_msgs.msg import Bool
-
+from duckietown.dtros import DTROS, NodeType #type: ignore
+from sensor_msgs.msg import CompressedImage #type: ignore
+from std_msgs.msg import Float32MultiArray #type: ignore
+from std_msgs.msg import Bool #type: ignore
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
 import cv2
-from cv_bridge import CvBridge
+from cv_bridge import CvBridge #type: ignore
 #from augmented_reality_basics import Augmenter
 
 #from std_msgs.msg import Float32MultiArray, MultiArrayDimension, MultiArrayLayout
@@ -25,7 +26,7 @@ class MyImageProcessNode(DTROS):
         self._vehicle_name = os.environ['VEHICLE_NAME']
         self._camera_topic = f"/{self._vehicle_name}/camera_node/image/compressed"
 
-        self._line_following_topic = f"/{self._vehicle_name}/pid_intersection_controll_node/line_following"
+        self.line_following_topic = f"/{self._vehicle_name}/pid_intersection_controll_node/line_following"
     
 
         # bridge between OpenCV and ROS
@@ -35,7 +36,7 @@ class MyImageProcessNode(DTROS):
         # construct subscriber
         self.sub_image = rospy.Subscriber(self._camera_topic, CompressedImage, self.callback_image)
         
-        self.sub_msg = rospy.Subscriber(self._line_following_topic, Bool, self.callback_msg)
+        self.sub_msg = rospy.Subscriber(self.line_following_topic, Bool, self.callback_msg)
 
         #Test
         #aug = Augmenter()
@@ -76,6 +77,10 @@ class MyImageProcessNode(DTROS):
 
         #Line following
         self.line_following=True
+
+        #Wenn in einem SLW nicht diese Anzahl an pixel ist, wird der Punkt nicht genutzt, um das Polynom duchzulegen
+        self.white_slw_threshold=50000 
+        self.yellow_slw_threshold=50000
 
         print("INIT: image_process_node")
 
@@ -181,7 +186,7 @@ class MyImageProcessNode(DTROS):
             #mask_sobely macht oft löcher
             #cv2.imshow("mask_sobely_neg", mask_sobelx_neg*mask_right)
             
-
+            #TODO Sobel Dir hier noch einbauen anstatt x_neg usw.
             mask_left_edge = mask_left * mask_mag  * mask_sobelx_neg #* mask_sobely_pos
             mask_right_edge = mask_right * mask_mag * mask_sobelx_pos #* mask_sobely_neg 
 
@@ -440,7 +445,7 @@ class MyImageProcessNode(DTROS):
 
                 
 
-                if yellow_slw_pixel_count>1:  #TODO Hier noch anderen threshold auswählen
+                if yellow_slw_pixel_count>self.yellow_slw_threshold:  #TODO Hier noch anderen threshold auswählen
                 
                     slw_gelb_x = np.argmax(slw_gelb_his)
                     gelb_x.append((slw_gelb_x+gelb_x[i]-breite_slw//2))
@@ -466,7 +471,7 @@ class MyImageProcessNode(DTROS):
 
                 
 
-                if white_slw_pixel_count>1: #TODO Hier noch anderen threshold auswählen
+                if white_slw_pixel_count>self.white_slw_threshold:
                 
                     slw_weis_x =np.argmax(slw_weis_his)
                     weis_x.append((slw_weis_x+weis_x[i]-breite_slw//2))
@@ -488,11 +493,15 @@ class MyImageProcessNode(DTROS):
             self.last_white_startpoint=weis_x[0]
 
             #Hier jetzt noch die x² funktion duchlegen und diese + weights publishen
-
+            #print("DAVOR: gelb_x_weights: ", gelb_x_weight)
 
             #für gelb
 
             y_werte_gelb = np.arange(höhe - höhe_slw / 2, höhe_slw / 2 - höhe_slw, -höhe_slw) #Erstellt array das von 480 bis 0 in gleichen abständen punkte defineirt
+
+            gelb_x_weight = np.array(gelb_x_weight)
+            gelb_x = np.array(gelb_x)
+            y_werte_gelb = np.array(y_werte_gelb)
 
             indices_to_remove_gelb = np.where(gelb_x_weight == 0.0)[0]
 
@@ -500,14 +509,16 @@ class MyImageProcessNode(DTROS):
             gelb_x = np.delete(gelb_x, indices_to_remove_gelb)
             y_werte_gelb = np.delete(y_werte_gelb, indices_to_remove_gelb)
 
-            if gelb_x.size()>=3:
+            #print("DANACH: gelb_x_weights: ", gelb_x_weight)
+
+            if len(gelb_x)>=3:
             #Achtung x und y vertauscht, damit man einen y wert hineingeben kann und einen x wert raus bekommt
                 a_gelb, b_gelb, c_gelb = np.polyfit(y_werte_gelb, gelb_x, 2) # a*x² + b*x + c
 
             else:
-                a_gelb=None
-                b_gelb=None
-                c_gelb=None
+                a_gelb=0.0
+                b_gelb=0.0
+                c_gelb=0.0
 
 
 
@@ -516,42 +527,196 @@ class MyImageProcessNode(DTROS):
 
             y_werte_weis = np.arange(höhe - höhe_slw / 2, höhe_slw / 2 - höhe_slw, -höhe_slw) #Erstellt array das von 480 bis 0 in gleichen abständen punkte defineirt
 
+            weis_x_weight = np.array(weis_x_weight)
+            weis_x = np.array(weis_x)
+            y_werte_weis = np.array(y_werte_weis)
+
             indices_to_remove_weis = np.where(weis_x_weight == 0.0)[0]
 
             # Entferne die Werte an diesen Indizes in red_y und x_array
             weis_x = np.delete(weis_x, indices_to_remove_weis)
             y_werte_weis = np.delete(y_werte_weis, indices_to_remove_weis)
 
-            if weis_x.size()>=3:
+            if len(weis_x)>=3:
             #Achtung x und y vertauscht, damit man einen y wert hineingeben kann und einen x wert raus bekommt
-                a_weis, b_weis, c_weis = np.polyfit(y_werte_weis, weis_x, 2) # a*x² + b*x + c
+                a_weis, b_weis, c_weis = np.polyfit(y_werte_weis, weis_x, 2) #x= a*y² + b*y + c
 
             else:
-                a_weis=None
-                b_weis=None
-                c_weis=None
+                a_weis=0.0
+                b_weis=0.0
+                c_weis=0.0
 
             #Publishen
-
+            #print("ImageProcessPub: ", [yellow_weight, a_gelb, b_gelb, c_gelb, white_weight, a_weis, b_weis, c_weis])
             msg = Float32MultiArray()
             msg.data=[yellow_weight, a_gelb, b_gelb, c_gelb, white_weight, a_weis, b_weis, c_weis]
             self.pub.publish(msg)
-            print("image_process_node published!")
+            #print("image_process_node published!")
 
-            cv2.imshow("yellow + slws", yellow_lines_slw)
+            #cv2.imshow("yellow + slws", yellow_lines_slw)
 
             #print("gelb_x: ", gelb_x)
 
-            cv2.imshow("white + slws", white_lines_slw)
+            #cv2.imshow("white + slws", white_lines_slw)
 
+            
+
+
+
+            
+
+            #Ergebnis plotten
+            def draw_x(img, x, y, color):
+                
+                #Zeichnet ein 'X' auf das Bild an der gegebenen Position (x, y) mit der gegebenen Farbe.
+                
+
+                # Konvertiere x und y in Ganzzahlen
+                x = int(x)
+                y = int(y)
+                thickness = 2
+                size = 5  # Größe des X
+                
+                # Zeichne die diagonalen Linien des X in der angegebenen Farbe
+                cv2.line(img, (x - size, y - size), (x + size, y + size), color, thickness)
+                cv2.line(img, (x - size, y + size), (x + size, y - size), color, thickness)
+
+            img_points = np.zeros((höhe, breite, 3), dtype=np.uint8)
+
+            for x, y in zip(gelb_x, y_werte_gelb):
+                draw_x(img_points, x, y, (0, 128, 128))  # helles Gelb im BGR-Farbraum
+            
+            # Zeichne die grauen X auf das Bild
+            for x, y in zip(weis_x, y_werte_weis):
+                draw_x(img_points, x, y, (128, 128, 128))  # Grau im BGR-Farbraum
+            
+            # Zeige das Bild mit OpenCV
+            
+            
+
+
+
+
+            #Hier Punkte der Polynome plotten
+
+            num_points = 30
+
+
+            #GELB
+
+            #überprüfen, ob polynom existiert
+            if(a_gelb!=None):
+                
+                y_values_gelb = np.linspace(höhe_slw/2, höhe-höhe_slw/2, num_points)
+                x_values_gelb = np.polyval([a_gelb, b_gelb, c_gelb], y_values_gelb)
+
+                for x, y in zip(x_values_gelb, y_values_gelb):
+                    if 0 <= x < breite and 0 <= y < höhe:
+                        cv2.circle(img_points, (int(x), int(y)), 5, (0, 255, 255), -1)  #dunkles Gelb, Radius 5
+            else:
+                # Farben definieren (BGR: Rot)
+                abstand = 10
+
+                # Rechteck-Eigenschaften
+                rect_width = 100  # Breite des Rechtecks
+                rect_height = 50  # Höhe des Rechtecks
+
+                # Berechne die Position des Rechtecks
+                rect_x = abstand  # Abstand vom linken Rand
+                rect_y = höhe - rect_height - abstand  # Abstand vom unteren Rand
+
+                # Rechteck zeichnen
+                top_left = (rect_x, rect_y)
+                bottom_right = (rect_x + rect_width, rect_y + rect_height)
+                red_color = (0, 0, 255)
+                cv2.rectangle(img_points, top_left, bottom_right, red_color, -1)
+
+
+
+            #WEIS 
+
+            #überprüfen, ob polynom existiert
+            if(a_weis!=None):
+                y_values_weis = np.linspace(höhe_slw/2, höhe-höhe_slw/2, num_points)
+                x_values_weis = np.polyval([a_weis, b_weis, c_weis], y_values_weis)
+
+                for x, y in zip(x_values_weis, y_values_weis):
+                    if 0 <= x < breite and 0 <= y < höhe:
+                        cv2.circle(img_points, (int(x), int(y)), 5, (255, 255, 255), -1)  #Weis, Radius 5
+            else:
+                red_color = (0, 0, 255)
+
+                # Rechteck-Eigenschaften
+                rect_width = 100  # Breite des Rechtecks
+                rect_height = 50  # Höhe des Rechtecks
+
+                # Rechteck-Position (unten rechts)
+                rect_x = breite - rect_width - 10  # 10 Pixel Abstand vom rechten Rand
+                rect_y = höhe - rect_height - 10  # 10 Pixel Abstand vom unteren Rand
+
+                # Rechteck zeichnen
+                top_left = (rect_x, rect_y)
+                bottom_right = (rect_x + rect_width, rect_y + rect_height)
+                cv2.rectangle(img_points, top_left, bottom_right, red_color, -1)
+
+
+
+
+
+            #cv2.imshow('img_points_gelb_weis', img_points)
+            cv2.waitKey(1)
+
+            """
+            #Plotten der Polynome
+            
+            def polynom_gelb(y):
+                return a_gelb * y**2 + b_gelb * y + c_gelb
+
+            # Funktion für das weiße Polynom
+            def polynom_weis(y):
+                return a_weis * y**2 + b_weis * y + c_weis
+
+            # Erstelle den y-Wertebereich von 0 bis 480
+            y_values = np.linspace(0, 480, 1000)
+
+            # Berechne die x-Werte für beide Polynome
+            x_values_gelb = polynom_gelb(y_values)
+            x_values_weis = polynom_weis(y_values)
+
+            # Erstelle den Plot
+            def update(frame):
+
+                plt.clf()
+
+                plt.plot(x_values_gelb, y_values, color="yellow", label="Polynom_gelb")
+                plt.plot(x_values_weis, y_values, color="black", label="Polynom_weis")
+
+                # Setze die x- und y-Achsenlimits
+                plt.xlim(0, 640)
+                plt.ylim(0, 480)
+
+                # Beschrifte die Achsen und füge einen Titel hinzu
+                plt.xlabel("x")
+                plt.ylabel("y")
+                plt.title("Polynomdarstellung x = ay² + by + c")
+
+                # Füge ein Grid hinzu
+                #plt.grid(True)
+
+                # Zeige die Legende an
+                plt.legend()
+
+            fig = plt.figure(figsize=(10, 6))
+            ani = FuncAnimation(fig, update, frames=range(100), repeat=True)
+            plt.show()
+            """
 
             #time = rospy.get_time()
             #dt = time - last_time1
             #self.last_time = time
             #print("ldsn time: ", dt)
-    
+            # Bildgröße
 
-            cv2.waitKey(1)
 
 
 

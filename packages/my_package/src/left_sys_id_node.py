@@ -2,9 +2,9 @@
 
 import os
 import math
-import rospy
-from duckietown.dtros import DTROS, NodeType
-from duckietown_msgs.msg import WheelsCmdStamped, WheelEncoderStamped
+import rospy #type: ignore
+from duckietown.dtros import DTROS, NodeType #type: ignore
+from duckietown_msgs.msg import WheelsCmdStamped, WheelEncoderStamped #type: ignore
 import numpy as np
 import csv
 from datetime import datetime

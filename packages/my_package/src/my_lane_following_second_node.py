@@ -40,7 +40,6 @@ class MyLaneFollowingNode(DTROS):
 
         self.wheel_base=0.1     #in m
 
-        self.curve_threshhold=0.4   #in m
 
         self.r_max = 0.34 #in m
         self.r_min = 0.105 #in m
@@ -48,24 +47,6 @@ class MyLaneFollowingNode(DTROS):
         self.v_min = 0.2
 
 
-        #PID Regler für Straßenmittenregelung
-
-        #TODO PID Werte anpassen
-        self.kp_x=1
-        self.ki_x=0.5
-        self.kd_x=0.1
-
-        self.kp_phi=1
-        self.ki_phi=0.5
-        self.kd_phi=0.1
-
-
-        self.time_last = rospy.gettime()
-        self.x_err_last=0
-        self.x_i_err=0
-
-        self.phi_err_last=0
-        self.phi_i_err=0
 
         print("INIT: my_lane_following_node")
         
@@ -264,35 +245,6 @@ class MyLaneFollowingNode(DTROS):
             cv2.line(img_points, (int(x_0_gelb), int(y_0)), (int(x_mitte_gelb), int(y_mitte_gelb)), (0, 200, 200), 2)
 
 
-            """
-            #Kreis zeichen 
-            def draw_partial_circle(center_x, center_y, radius, start_angle, end_y):
-    
-                
-                # Startwinkel in Radianten umrechnen
-                start_angle_rad = math.radians(start_angle)
-                current_angle = start_angle_rad
-                
-                while True:
-                    # Berechne x und y Koordinaten
-                    x = int(center_x + radius * math.cos(current_angle))
-                    y = int(center_y + radius * math.sin(current_angle))
-                    
-                    # Zeichne einen Punkt
-                    cv2.circle(img_points, (x, y), 1, (0, 90, 90), -1)  # gelber Punkt
-                    
-                    # Überprüfe, ob der y-Wert unterschritten wurde
-                    if y < end_y:
-                        break
-                    
-                    # Erhöhe den Winkel
-                    current_angle += 0.01  # Kleinere Schritte für einen glatteren Kreis
-                
-
-            draw_partial_circle(320-radius_gelb, 480, radius_gelb, 0, y_mitte_gelb)
-            """
-
-
         #Wenn Polynom nicht existiert, dann Rotes Rechteck zeichnen
         else:
             # Farben definieren (BGR: Rot)
@@ -335,36 +287,6 @@ class MyLaneFollowingNode(DTROS):
 
 
             cv2.line(img_points, (int(x_0_weis), int(y_0)), (int(x_mitte_weis), int(y_mitte_weis)), (128, 128, 128), 2)
-
-
-            """
-            #Kreis zeichen 
-            def draw_partial_circle(center_x, center_y, radius, start_angle, end_y):
-    
-                
-                # Startwinkel in Radianten umrechnen
-                start_angle_rad = math.radians(start_angle)
-                current_angle = start_angle_rad
-                
-                while True:
-                    # Berechne x und y Koordinaten
-                    x = int(center_x + radius * math.cos(current_angle))
-                    y = int(center_y + radius * math.sin(current_angle))
-                    
-                    # Zeichne einen Punkt
-                    cv2.circle(img_points, (x, y), 1, (90, 90, 90), -1)  # grauer Punkt
-                    
-                    # Überprüfe, ob der y-Wert unterschritten wurde
-                    if y < end_y:
-                        break
-                    
-                    # Erhöhe den Winkel
-                    current_angle += 0.01  # Kleinere Schritte für einen glatteren Kreis
-                
-
-            draw_partial_circle(320-radius_weis, 480, radius_weis, 0, y_mitte_weis)
-            """
-
 
 
 
@@ -417,202 +339,6 @@ class MyLaneFollowingNode(DTROS):
 
         
 
-#Hier alles um rauszufinden, wo das Auto im Moment auf der Straße positioniert ist
-
-        #TODO Hier auch noch einen größeren Wert wählen, damit der Mittelpunkt auch wirklich der Mittelpunkt ist, also die Drehachse
-        y_0_car=480
-
-        
-        if(a_gelb!=0.0)&(b_gelb!=0.0)&(c_gelb!=0.0):
-            steigung_gelb_car = f_abl_gelb(y_0_car)
-            steigung_normale_gelb_car=-1/steigung_gelb_car
-            x_0_gelb_car=f_gelb(y_0_car)
-        else:
-            steigung_gelb_car = None
-            steigung_normale_gelb_car= None
-            x_0_gelb_car = None
-
-        if(a_weis!=0.0)&(b_weis!=0.0)&(c_weis!=0.0):
-            steigung_weis_car = f_abl_weis(y_0_car)
-            steigung_normale_weis_car=-1/steigung_weis_car
-            x_0_weis_car = f_weis(y_0_car)
-        else:
-            steigung_weis_car=None
-            steigung_normale_weis_car=None
-            x_0_weis_car = None
-
-        #Falls die Steigung zu groß ist, kann angenommen werden, dass sich die Mitte rechts horizontal von der gelben Linie befindet
-        def mitte_gelb_car():
-            if abs(steigung_normale_gelb_car) > 999:
-                x_mitte_gelb_car=x_0_gelb_car+(self.strassenbreite/2)
-                phi_gelb=0
-                
-            else:
-
-                alpha_gelb=np.arctan(steigung_normale_gelb_car)
-                if alpha_gelb<0:
-                    phi_gelb=-np.pi/2-alpha_gelb
-                else:
-                    phi_gelb=np.pi/2-alpha_gelb
-
-                
-
-                delta_x_gelb=(self.strassenbreite/2)/np.cos(phi_gelb)
-                #print("gelb delta x pixel: ", delta_x_gelb)
-
-                x_mitte_gelb_car=x_0_gelb_car+abs(delta_x_gelb)
-
-                
-                
-                print("gelb winkel", np.rad2deg(phi_gelb))
-
-
-            return x_mitte_gelb_car, phi_gelb
-        
-        #Falls die Steigung zu groß ist, kann angenommen werden, dass sich die Mitte links horizontal von der weisen Linie befindet
-        def mitte_weis_car():
-            if abs(steigung_normale_weis_car) > 999:
-                x_mitte_weis_car=x_0_weis_car-(self.strassenbreite/2)
-                phi_weis=0
-                
-            else:
-
-                alpha_weis=np.arctan(steigung_normale_weis_car)
-                if(alpha_weis<0):
-
-                    phi_weis=-np.pi/2-alpha_weis
-                else:
-                    phi_weis=np.pi/2-alpha_weis
-
-                delta_x_weis=(self.strassenbreite/2)/np.cos(phi_weis)
-                #print("weis delta x pixel: ", delta_x_weis)
-
-                x_mitte_weis_car=x_0_weis_car-abs(delta_x_weis)
-
-
-                print("weis winkel", np.rad2deg(phi_weis))
-
-
-            return x_mitte_weis_car, phi_weis
-
-
-#Hier auch analog zum Radius, abschätzung über den wirklichen mittelpunkt machen mit der gewichtungen
-        if(steigung_weis_car is None)&(steigung_gelb_car is not None):
-            x_mitte_gelb_car, phi_gelb_car = mitte_gelb_car()
-
-            x_mitte_car = x_mitte_gelb_car
-
-
-            phi_car = phi_gelb_car
-            
-        elif(steigung_weis_car is not None)&(steigung_gelb_car is None):
-            x_mitte_weis_car, phi_weis_car = mitte_weis_car()
-
-            x_mitte_car = x_mitte_weis_car
-
-            
-            phi_car = phi_weis_car
-
-        elif(steigung_weis_car is not None)&(steigung_gelb_car is not None):
-            weis_fac=white_weight/(white_weight+yellow_weight)
-            gelb_fac=yellow_weight/(white_weight+yellow_weight)
-
-            x_mitte_gelb_car, phi_gelb_car = mitte_gelb_car()
-
-            x_mitte_weis_car, phi_weis_car = mitte_weis_car()
-
-    
-            # Berechnung des gewichteten Mittelpunkts
-            x_mitte_car = weis_fac * x_mitte_weis_car + gelb_fac * x_mitte_gelb_car
-
-            phi_car = phi_weis_car*weis_fac + phi_gelb_car*gelb_fac
-
-            #Berechnung des Winkels zur x-achse
-
-
-        else: #(steigung_weis is None)&(steigung_gelb is None):
-              
-            x_mitte_car = self.strassenmitte
-            phi_car=0
-
-
-
-#Hier alles Für das Plotten des Auto Mittelpunktes
-        """
-        #gelbe linie zum auto, wenn gelbes Polynom existiert
-        if steigung_gelb_car is not None:
-            cv2.line(img_points, (int(x_0_gelb_car), int(y_0_car)), (int(x_mitte_gelb_car), int(y_0_car)), (0, 177, 177), 3)
-
-        #weise linie zum auto, wenn weises Polynom existiert
-        if steigung_weis_car is not None:
-            cv2.line(img_points, (int(x_0_weis_car), int(y_0_car)), (int(x_mitte_weis_car), int(y_0_car)), (177, 177, 177), 3)
-
-        """
-
-        #Wenn Position existiert, Auto plotten
-        if(x_mitte_car is not None):
-            
-            phi_car_in_grad=np.rad2deg(phi_car)
-            print("Winkel des Autos zur Straße: ", phi_car_in_grad)
-            """
-            # Größe des Rechtecks
-            rect_width = 100
-            rect_height = 50
-
-            # Farbe des Rechtecks (Blau)
-            color = (255, 0, 0)
-
-            # Berechnung der Eckpunkte des Rechtecks vor der Rotation
-            rect_pts = np.array([
-                [-rect_width // 2, -rect_height // 2],  # obere linke Ecke
-                [rect_width // 2, -rect_height // 2],   # obere rechte Ecke
-                [rect_width // 2, rect_height // 2],    # untere rechte Ecke
-                [-rect_width // 2, rect_height // 2]    # untere linke Ecke
-            ])
-
-            # Rotationstransformationsmatrix erstellen
-            rotation_matrix = cv2.getRotationMatrix2D((0, 0), phi_car_in_grad, 1.0)
-
-            # Rotierte Punkte berechnen
-            rotated_pts = np.dot(rect_pts, rotation_matrix[:, :2].T)
-
-            # Verschieben der Punkte zu x_mitte_car, y_0_car
-            rotated_pts[:, 0] += x_mitte_car
-            rotated_pts[:, 1] += y_0_car
-
-            # Umwandlung der Punkte in Integer-Werte für OpenCV
-            rotated_pts = rotated_pts.astype(np.int32)
-
-            # Zeichnen des Rechtecks mit den rotieren Punkten
-            cv2.fillPoly(img_points, [rotated_pts], color=(255, 0, 0))
-            """
-            
-            # Länge der Linie
-            line_length = 75
-
-            # Berechne die Endpunkte der Linie mit dem gleichen Winkel
-
-            # Endpunkt 1 berechnen (in eine Richtung entlang des Winkels)
-            x1 = int(x_mitte_car + abs(line_length * np.cos(phi_car)))
-            y1 = int(y_0_car + abs(line_length * np.sin(phi_car)))
-
-            # Endpunkt 2 berechnen (in die andere Richtung entlang des Winkels)
-            x2 = int(x_mitte_car - abs(line_length * np.cos(phi_car)))
-            y2 = int(y_0_car - abs(line_length * np.sin(phi_car)))
-
-            # Zeichnen der roten Linie 
-            cv2.line(img_points, (x1, y1), (x2, y2), [0, 0, 255], thickness=2)
-           
-
-            #Gelben punkt im mittelpunkt zeichnen
-            cv2.circle(img_points, (int(x_mitte_car), int(y_0_car)), radius=5, color=(0, 255, 255), thickness=-1)
-
-
-        cv2.imshow('Regelung', img_points)
-        cv2.waitKey(1)
-
-
-        
 
 
 
@@ -622,61 +348,7 @@ class MyLaneFollowingNode(DTROS):
             radius = radius*self.factor
     
 
-
-
-
-        #Da ich jetzt den Radius habe und auch den Mittelpunkt des autos, kann darauf geregelt werden, dass sich das auto in der Mitte der straße befinden soll.
-        # Das heißt, wenn das auto weiter links des mittelpunktes ist, und der anfahrtspunkt auch weiter links ist, muss der radius größer gewählt werden,
-        # wenn das auto weiter links des mittelpunktes ist, und der anfahrtspunkt werter rechts ist, muss der radius kleiner gewählt werden
-        # Andersherum ist das simultan
-
-
-        time= rospy.gettime()
-        
-        dt=time-self.time_last
-
-        
-
-        #um in den selben größenordnungen zu bleiben, auch in m rechnen
-        x_err = (self.strassenmitte - x_mitte_car)*self.factor
-
-        
-        x_d_err = (x_err-self.x_err_last)/dt
-
-        self.x_i_err = self.x_i_err + x_err*dt
-
-        
-        #Auch hier ist, wenn der Fehler positiv ist, muss das auto weiter links fahren, wenn der Fehler negativ ist, weiter rechts
-        delta_radius_x = self.kp_x * x_err + self.ki_x * self.x_i_err + self.kd_x * x_d_err
-
-
-        phi_err = phi_car
-
-        phi_d_err = (phi_err-self.phi_err_last)/dt
-
-        self.phi_i_err = self.x_i_err + phi_err*dt
-
-        delta_radius_phi = self.kp_phi * phi_err + self.ki_phi * self.phi_i_err + self.kd_phi * phi_d_err
-
-
-        #Werte aktualisieren
-        self.x_err_last = x_err
-        self.time_last = time
-        self.phi_err_last=phi_err
-
-
-
-
-
-
-
-        #Dann einfach Radius mit delta Radius addieren, um eine geregelte Winkelgeschwindigkeit zu erreichen
-        radius = radius + delta_radius_x + delta_radius_phi
-
-
-
-
-
+      
 
         #wenn keine linien erkannt wurden(dann ist radius = None), dann lieber langsam fahren
         if radius==None:

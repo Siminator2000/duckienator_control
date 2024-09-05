@@ -32,7 +32,8 @@ class SysIdNode(DTROS):
         self._left_encoder_topic = f"/{vehicle_name}/left_wheel_encoder_node/tick"
         self._right_encoder_topic = f"/{vehicle_name}/right_wheel_encoder_node/tick"
         
-  
+        self._ticks_left = None
+        self._ticks_right = None
         
         self.sub_left = rospy.Subscriber(self._left_encoder_topic, WheelEncoderStamped, self.callback_left)
         self.sub_right = rospy.Subscriber(self._right_encoder_topic, WheelEncoderStamped, self.callback_right)
@@ -40,12 +41,11 @@ class SysIdNode(DTROS):
         #Timer
         self.timer = rospy.Timer(rospy.Duration(0.1), self.timer_callback) #ruft Funktion alle 0.1 Sekunden auf
 
+        self.time_last_l = None
+        self.time_last_r = None
 
-        self.ticks_left=None
-        self.ticks_right=None
-
-        self.ticks_left_last = None
-        self.ticks_right_last = None
+        self._ticks_left_last = None
+        self._ticks_right_last = None
 
         self.strecke_pro_tick_links = (np.pi * self.umfang_links)/self.res
         self.strecke_pro_tick_rechts = (np.pi * self.umfang_rechts)/self.res
@@ -54,23 +54,23 @@ class SysIdNode(DTROS):
         self.v_l_soll = None
         self.v_r_ist = None
         self.v_l_ist = None
-        self.time_last_r = None
-        self.time_last_l = None
+
         
         self.csv_file = open('/data/sys_id/sys_id.csv', mode='w')
         self.csv_writer = csv.writer(self.csv_file)
-        self.csv_writer.writerow(['Time', 'v_r_soll', 'v_r_ist'])
+        self.csv_writer.writerow(['Time', 'v_l_soll', 'v_r_soll', 'v_l_ist', 'v_r_ist'])
 
 
 
     def callback_left(self, data):
-        self.ticks_left = data.data
+        self._ticks_left = data.data
+        #rospy.loginfo_once(f"Ticks_left_init: {self._ticks_left}")
 
 
 
 
     def callback_right(self, data):
-        self.ticks_right = data.data
+        self._ticks_right = data.data
 
 
 
@@ -90,14 +90,14 @@ class SysIdNode(DTROS):
 
         time_r = rospy.get_time()
 
-        if (self.ticks_right_last == None)|(self.time_last_r == None):
+        if (self._ticks_right_last == None)|(self.time_last_r == None):
             self.v_r_ist = None
         else:
             dt = time_r-self.time_last_r
-            self.v_r_ist = (self.ticks_right - self.ticks_right_last)*self.strecke_pro_tick_rechts/dt
+            self.v_r_ist = (self._ticks_right - self._ticks_right_last)*self.strecke_pro_tick_rechts/dt
 
         self.time_last_r = time_r
-        self.ticks_right_last = self.ticks_right
+        self._ticks_right_last = self._ticks_right
 
 
 
@@ -115,7 +115,7 @@ class SysIdNode(DTROS):
             # Daher kürzen wir die Mikrosekunden auf Millisekunden (erste 3 Stellen).
             matlab_time_str = matlab_time_str[:-3]
 
-            values = [matlab_time_str, self.v_r_soll, self.v_r_ist]
+            values = [matlab_time_str, self.v_l_soll, self.v_r_soll, self.v_l_ist, self.v_r_ist] 
             
             # Schreiben der Daten in eine Zeile
             self.csv_writer.writerow(values)
@@ -123,8 +123,10 @@ class SysIdNode(DTROS):
 
     def run(self):
 
-        dauer=2 #2 sekunden je wert
-        """
+        dauer=2 #2 sekunden
+
+        
+        #Werte für Modell
         self.v_l_soll=0.0
         self.v_r_soll=0.0
         message1 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
@@ -132,138 +134,149 @@ class SysIdNode(DTROS):
         self._publisher.publish(message1)
         rospy.sleep(dauer/2)  
 
-        self.v_l_soll=0.0
-        self.v_r_soll=0.3
+        self.v_l_soll=0.3
+        self.v_r_soll=0.2
+        message2 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
+        rospy.loginfo("Publiziere 2.")
+        self._publisher.publish(message2)
+        rospy.sleep(dauer)
+
+        self.v_l_soll=0.15
+        self.v_r_soll=0.15
         message3 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
         rospy.loginfo("Publiziere 3.")
         self._publisher.publish(message3)
         rospy.sleep(dauer)
 
-        self.v_l_soll=0.0
-        self.v_r_soll=0.0
+        self.v_l_soll=0.4
+        self.v_r_soll=0.6
         message4 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
         rospy.loginfo("Publiziere 4.")
         self._publisher.publish(message4)
-        rospy.sleep(dauer/2)
+        rospy.sleep(dauer)
 
-        self.v_l_soll=0.0
-        self.v_r_soll=0.4
-        message4 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
+        self.v_l_soll=0.12
+        self.v_r_soll=0.6
+        message5 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
         rospy.loginfo("Publiziere 5.")
-        self._publisher.publish(message4)
+        self._publisher.publish(message5)
+        rospy.sleep(dauer)
+
+        self.v_l_soll=0.6
+        self.v_r_soll=0.12
+        message6 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
+        rospy.loginfo("Publiziere 6.")
+        self._publisher.publish(message6)
         rospy.sleep(dauer)
 
         self.v_l_soll=0.0
         self.v_r_soll=0.0
-        message6 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
-        rospy.loginfo("Publiziere 6.")
-        self._publisher.publish(message6)
-        rospy.sleep(dauer/2)
-
-        self.v_l_soll=0.0
-        self.v_r_soll=0.5
         message7 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
         rospy.loginfo("Publiziere 7.")
         self._publisher.publish(message7)
         rospy.sleep(dauer)
 
-        self.v_l_soll=0.0
+
+        self.v_l_soll=0.6
         self.v_r_soll=0.0
         message8 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
         rospy.loginfo("Publiziere 8.")
         self._publisher.publish(message8)
-        rospy.sleep(dauer/2)
-        
+        rospy.sleep(dauer)
+
         self.v_l_soll=0.0
         self.v_r_soll=0.6
         message9 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
         rospy.loginfo("Publiziere 9.")
         self._publisher.publish(message9)
         rospy.sleep(dauer)
-   
-        self.v_l_soll=0.0
+
+
+        self.v_l_soll=0.2
         self.v_r_soll=0.0
+        message10 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
+        rospy.loginfo("Publiziere 10.")
+        self._publisher.publish(message10)
+        rospy.sleep(dauer)  
+
+        self.v_l_soll=0.0
+        self.v_r_soll=0.2
         message11 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
         rospy.loginfo("Publiziere 11.")
         self._publisher.publish(message11)
-        rospy.sleep(dauer/2)
+        rospy.sleep(dauer)
+        
 
+        self.v_l_soll=0.5
+        self.v_r_soll=0.0
+        message12 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
+        rospy.loginfo("Publiziere 12.")
+        self._publisher.publish(message12)
+        rospy.sleep(dauer)
 
-
-        self.csv_file.close()
-
-        rospy.signal_shutdown("Alle Werte gepublished und gespeichert. Knoten wird heruntergefahren!")
-
+        self.v_l_soll=0.0
+        self.v_r_soll=0.5
+        message13 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
+        rospy.loginfo("Publiziere 13.")
+        self._publisher.publish(message13)
+        rospy.sleep(dauer)
         """
-        #Werte für Validierung
+        self.v_l_soll=1.0
+        self.v_r_soll=0.0
+        message14 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
+        rospy.loginfo("Publiziere 14.")
+        self._publisher.publish(message14)
+        rospy.sleep(dauer)
+        """
         self.v_l_soll=0.0
         self.v_r_soll=0.0
-        message1 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
-        rospy.loginfo("Publiziere 1.")
-        self._publisher.publish(message1)
-        rospy.sleep(dauer/2)  
-
-        self.v_l_soll=0.0
-        self.v_r_soll=0.28
-        message3 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
-        rospy.loginfo("Publiziere 3.")
-        self._publisher.publish(message3)
+        message15 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
+        rospy.loginfo("Publiziere 15.")
+        self._publisher.publish(message15)
         rospy.sleep(dauer)
 
-        self.v_l_soll=0.0
-        self.v_r_soll=0.0
-        message4 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
-        rospy.loginfo("Publiziere 4.")
-        self._publisher.publish(message4)
-        rospy.sleep(dauer/2)
-
-        self.v_l_soll=0.0
-        self.v_r_soll=0.69
-        message4 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
-        rospy.loginfo("Publiziere 5.")
-        self._publisher.publish(message4)
+        self.v_l_soll=0.4
+        self.v_r_soll=0.4
+        message16 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
+        rospy.loginfo("Publiziere 16.")
+        self._publisher.publish(message16)
         rospy.sleep(dauer)
-
-        self.v_l_soll=0.0
-        self.v_r_soll=0.0
-        message6 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
-        rospy.loginfo("Publiziere 6.")
-        self._publisher.publish(message6)
-        rospy.sleep(dauer/2)
-
-        self.v_l_soll=0.0
-        self.v_r_soll=0.44
-        message7 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
-        rospy.loginfo("Publiziere 7.")
-        self._publisher.publish(message7)
-        rospy.sleep(dauer)
-
-        self.v_l_soll=0.0
-        self.v_r_soll=0.0
-        message8 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
-        rospy.loginfo("Publiziere 8.")
-        self._publisher.publish(message8)
-        rospy.sleep(dauer/2)
  
-        self.v_l_soll=0.0
-        self.v_r_soll=0.89
-        message9 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
-        rospy.loginfo("Publiziere 9.")
-        self._publisher.publish(message9)
+        self.v_l_soll=0.2
+        self.v_r_soll=0.4
+        message17 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
+        rospy.loginfo("Publiziere 17.")
+        self._publisher.publish(message17)
+        rospy.sleep(dauer)
+
+        self.v_l_soll=0.2
+        self.v_r_soll=0.2
+        message18 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
+        rospy.loginfo("Publiziere 18.")
+        self._publisher.publish(message18)
+        rospy.sleep(dauer)
+
+        self.v_l_soll=0.4
+        self.v_r_soll=0.2
+        message19 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
+        rospy.loginfo("Publiziere 19.")
+        self._publisher.publish(message19)
         rospy.sleep(dauer)
 
         self.v_l_soll=0.0
         self.v_r_soll=0.0
-        message11 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
-        rospy.loginfo("Publiziere 11.")
-        self._publisher.publish(message11)
-        rospy.sleep(dauer/2)
+        message20 = WheelsCmdStamped(vel_left=self.v_l_soll, vel_right=self.v_r_soll)
+        rospy.loginfo("Publiziere 20.")
+        self._publisher.publish(message20)
+        rospy.sleep(dauer)
 
+        
 
 
         self.csv_file.close()
 
         rospy.signal_shutdown("Alle Werte gepublished und gespeichert. Knoten wird heruntergefahren!")
+
         
 
     def on_shutdown(self):
